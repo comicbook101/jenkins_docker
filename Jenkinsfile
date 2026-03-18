@@ -1,25 +1,26 @@
 pipeline {
-    agent {
-        docker {
-            image 'ubuntu:22.04'
-            args '-u root -v /var/run/docker.sock:/var/run/docker.sock'
-        }
-    }
+    agent any
     parameters {
         choice(name: 'ENV', choices: ['dev', 'test', 'prod'], description: 'Target environment')
     }
     stages {
-        stage('Install Docker CLI') {
-            steps {
-                sh '''
-                    apt-get update
-                    apt-get install -y docker.io
-                '''
-            }
-        }
         stage('Checkout') {
             steps {
                 checkout scm
+            }
+        }
+        stage('Install Docker CLI (if needed)') {
+            steps {
+                sh '''
+                    if ! command -v docker &> /dev/null
+                    then
+                        echo "Docker not found, installing..."
+                        apt-get update
+                        apt-get install -y docker.io
+                    else
+                        echo "Docker already installed"
+                    fi
+                '''
             }
         }
         stage('Build Image') {
@@ -48,6 +49,14 @@ pipeline {
                 input message: 'Approve production deployment'
                 sh 'docker run -d -p 3000:3000 -e ENV=prod status-service:${BUILD_NUMBER}'
             }
+        }
+    }
+    post {
+        always {
+            echo "Pipeline finished. Cleaning up stopped containers."
+            sh '''
+                docker ps -a -q --filter "name=status-service" | xargs -r docker rm -f
+            '''
         }
     }
 }
